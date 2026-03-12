@@ -4,9 +4,12 @@ const fs = require('fs');
 
 class VideoComposerService {
   /**
-   * 合成视频（图片 + 音频 + 字幕）
+   * 合成视频（图片 + 音频 + SRT 字幕）
+   * @param {Array} scenes - 场景数组，包含 imagePath, audioPath
+   * @param {string} outputPath - 输出视频路径
+   * @param {string} srtPath - SRT 字幕文件路径（可选）
    */
-  async composeVideo(scenes, outputPath) {
+  async composeVideo(scenes, outputPath, srtPath = null) {
     console.log(`开始合成视频，场景数: ${scenes.length}`);
 
     // 为每个场景创建临时视频片段
@@ -22,7 +25,6 @@ class VideoComposerService {
       await this.createVideoSegment(
         scene.imagePath,
         scene.audioPath,
-        scene.narration,
         segmentPath
       );
 
@@ -30,7 +32,20 @@ class VideoComposerService {
     }
 
     // 合并所有片段
-    await this.mergeSegments(videoSegments, outputPath);
+    const mergedPath = srtPath 
+      ? path.join(path.dirname(outputPath), 'merged_no_subtitle.mp4')
+      : outputPath;
+    
+    await this.mergeSegments(videoSegments, mergedPath);
+
+    // 如果提供了 SRT 字幕，添加字幕
+    if (srtPath && fs.existsSync(srtPath)) {
+      await this.addSubtitles(mergedPath, srtPath, outputPath);
+      // 删除无字幕的临时文件
+      if (fs.existsSync(mergedPath)) {
+        fs.unlinkSync(mergedPath);
+      }
+    }
 
     // 清理临时文件
     videoSegments.forEach(segment => {
@@ -44,9 +59,9 @@ class VideoComposerService {
   }
 
   /**
-   * 创建单个视频片段（图片 + 音频 + 字幕）
+   * 创建单个视频片段（图片 + 音频，不含字幕）
    */
-  createVideoSegment(imagePath, audioPath, subtitleText, outputPath) {
+  createVideoSegment(imagePath, audioPath, outputPath) {
     return new Promise((resolve, reject) => {
       // 获取音频时长
       ffmpeg.ffprobe(audioPath, (err, metadata) => {
@@ -56,9 +71,6 @@ class VideoComposerService {
         }
 
         const duration = metadata.format.duration;
-        
-        // 生成动态字幕滤镜
-        const subtitleFilter = this.generateDynamicSubtitles(subtitleText, duration);
 
         ffmpeg()
           .input(imagePath)
@@ -71,7 +83,7 @@ class VideoComposerService {
             '-b:a 192k',
             '-pix_fmt yuv420p',
             '-shortest',
-            '-vf', `scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2${subtitleFilter}`
+            '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2'
           ])
           .output(outputPath)
           .on('end', () => resolve(outputPath))
@@ -82,7 +94,63 @@ class VideoComposerService {
   }
 
   /**
-   * 生成动态字幕滤镜（按语速估算时间）
+   * 添加 SRT 字幕到视频
+   */
+  addSubtitles(videoPath, srtPath, outputPath) {
+    return new Promise((resolve, reject) => {
+      console.log('添加字幕:', { videoPath, srtPath, outputPath });
+      
+      // 使用绝对路径
+      const absoluteSrtPath = path.resolve(srtPath);
+      console.log('SRT 绝对路径:', absoluteSrtPath);
+      
+      // 在 Unix 系统上，subtitles 滤镜需要转义路径中的特殊字符
+      // 将路径中的 : 和 \ 进行转义
+      let escapedPath = absoluteSrtPath.replace(/\\/g, '/');
+      escapedPath = escapedPath.replace(/:/g, '\\\\:');
+      
+      console.log('转义后路径:', escapedPath);
+      
+      // 构建字幕滤镜字符串
+      const vfFilter = `subtitles=${escapedPath}`;
+      
+      console.log('视频滤镜:', vfFilter);
+      
+      ffmpeg()
+        .input(videoPath)
+        .videoFilters(vfFilter)
+        .outputOptions([
+          '-c:v libx264',
+          '-c:a copy',
+          '-preset fast',
+          '-crf 23'
+        ])
+        .output(outputPath)
+        .on('start', (commandLine) => {
+          console.log('FFmpeg 命令:', commandLine);
+        })
+        .on('progress', (progress) => {
+          if (progress.percent) {
+            console.log(`字幕处理进度: ${progress.percent.toFixed(1)}%`);
+          }
+        })
+        .on('end', () => {
+          console.log('字幕添加完成');
+          resolve(outputPath);
+        })
+        .on('error', (err, stdout, stderr) => {
+          console.error('添加字幕失败:', err.message);
+          if (stderr) {
+            console.error('FFmpeg stderr:', stderr);
+          }
+          reject(err);
+        })
+        .run();
+    });
+  }
+
+  /**
+   * 生成动态字幕滤镜（按语速估算时间）- 已废弃，使用 SRT 字幕替代
    */
   generateDynamicSubtitles(text, duration) {
     // 将文本按句子分段

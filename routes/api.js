@@ -9,6 +9,7 @@ const ollamaService = require('../services/ollama');
 const imageGenService = require('../services/imageGen');
 const ttsService = require('../services/tts');
 const videoComposer = require('../services/videoComposer');
+const srtGenerator = require('../utils/srtGenerator');
 
 const router = express.Router();
 
@@ -204,6 +205,7 @@ router.post('/retry-compose/:taskId', async (req, res) => {
  */
 async function retryComposeVideo(taskId, processedScenes) {
   try {
+    const tempDir = path.join(config.paths.temp, taskId);
     const outputDir = path.join(config.paths.output, taskId);
     fs.mkdirSync(outputDir, { recursive: true });
     const finalVideoPath = path.join(outputDir, 'video.mp4');
@@ -213,7 +215,27 @@ async function retryComposeVideo(taskId, processedScenes) {
       fs.unlinkSync(finalVideoPath);
     }
 
-    await videoComposer.composeVideo(processedScenes, finalVideoPath);
+    // 检查是否有 SRT 字幕文件
+    const srtPath = path.join(tempDir, 'subtitles.srt');
+    const hasSrt = fs.existsSync(srtPath);
+
+    if (hasSrt) {
+      // 使用 SRT 字幕合成视频
+      await videoComposer.composeVideo(processedScenes, finalVideoPath, srtPath);
+      
+      // 复制 SRT 文件到输出目录
+      const outputSrtPath = path.join(outputDir, 'subtitles.srt');
+      fs.copyFileSync(srtPath, outputSrtPath);
+    } else {
+      // 没有 SRT 字幕，生成一个
+      const srtResult = srtGenerator.generateSRT(processedScenes, srtPath);
+      console.log(`重新生成 SRT 字幕，总时长: ${srtResult.totalDuration.toFixed(2)}秒`);
+      
+      await videoComposer.composeVideo(processedScenes, finalVideoPath, srtPath);
+      
+      const outputSrtPath = path.join(outputDir, 'subtitles.srt');
+      fs.copyFileSync(srtPath, outputSrtPath);
+    }
 
     // 更新任务状态
     tasks.set(taskId, {
@@ -221,6 +243,7 @@ async function retryComposeVideo(taskId, processedScenes) {
       progress: 100,
       currentStep: '完成',
       videoUrl: `/output/${taskId}/video.mp4`,
+      srtUrl: `/output/${taskId}/subtitles.srt`,
       retried: true
     });
 
@@ -256,27 +279,34 @@ async function processNovel(taskId, filePath) {
     const scenes = scenesData.scenes.slice(0, config.limits.maxScenes);
     console.log(`提取了${scenes.length}个场景`);
 
-    // 3. 为每个场景生成内容
-    const processedScenes = [];
+    // 3. 生成 SRT 字幕文件
+    updateStatus(25, '生成字幕文件...');
     const tempDir = path.join(config.paths.temp, taskId);
     fs.mkdirSync(tempDir, { recursive: true });
+    
+    const srtPath = path.join(tempDir, 'subtitles.srt');
+    const srtResult = srtGenerator.generateSRT(scenes, srtPath);
+    console.log(`SRT 字幕已生成，总时长: ${srtResult.totalDuration.toFixed(2)}秒`);
+
+    // 4. 为每个场景生成内容
+    const processedScenes = [];
 
     for (let i = 0; i < scenes.length; i++) {
       const scene = scenes[i];
       const sceneNum = i + 1;
-      const baseProgress = 30 + (i / scenes.length) * 60;
+      const baseProgress = 30 + (i / scenes.length) * 55;
 
-      // 3.1 生成图像提示词
+      // 4.1 生成图像提示词
       updateStatus(baseProgress, `场景${sceneNum}: 生成图像提示词...`);
       const imagePrompt = await ollamaService.generateImagePrompt(scene.description);
 
-      // 3.2 生成图像
-      updateStatus(baseProgress + 10, `场景${sceneNum}: 生成图像...`);
+      // 4.2 生成图像
+      updateStatus(baseProgress + 8, `场景${sceneNum}: 生成图像...`);
       const imagePath = path.join(tempDir, `scene_${sceneNum}.png`);
       await imageGenService.generateImage(imagePrompt, imagePath);
 
-      // 3.3 生成配音
-      updateStatus(baseProgress + 15, `场景${sceneNum}: 生成配音...`);
+      // 4.3 生成配音
+      updateStatus(baseProgress + 12, `场景${sceneNum}: 生成配音...`);
       const audioPath = path.join(tempDir, `scene_${sceneNum}.wav`);
       await ttsService.generateTTS(scene.narration, audioPath);
 
@@ -294,22 +324,27 @@ async function processNovel(taskId, filePath) {
       narration: s.narration
     })), null, 2));
 
-    // 4. 合成最终视频
-    updateStatus(90, '合成视频...');
+    // 5. 合成最终视频（使用 SRT 字幕）
+    updateStatus(90, '合成视频并添加字幕...');
     const outputDir = path.join(config.paths.output, taskId);
     fs.mkdirSync(outputDir, { recursive: true });
     const finalVideoPath = path.join(outputDir, 'video.mp4');
 
-    await videoComposer.composeVideo(processedScenes, finalVideoPath);
+    await videoComposer.composeVideo(processedScenes, finalVideoPath, srtPath);
 
-    // 5. 完成
+    // 复制 SRT 文件到输出目录
+    const outputSrtPath = path.join(outputDir, 'subtitles.srt');
+    fs.copyFileSync(srtPath, outputSrtPath);
+
+    // 6. 完成
     updateStatus(100, '完成');
     tasks.set(taskId, {
       ...tasks.get(taskId),
       status: 'completed',
       progress: 100,
       currentStep: '完成',
-      videoUrl: `/output/${taskId}/video.mp4`
+      videoUrl: `/output/${taskId}/video.mp4`,
+      srtUrl: `/output/${taskId}/subtitles.srt`
     });
 
     // 保留临时目录，方便调试和重试
