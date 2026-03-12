@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>剧情解说视频生成器</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <div class="container mx-auto px-4 py-8 max-w-4xl">
+    <!-- 标题 -->
+    <div class="text-center mb-8">
+      <h1 class="text-4xl font-bold text-gray-800 mb-2">📖 视频生成器</h1>
+      <p class="text-gray-600">上传txt文件，自动生成剧情解说视频</p>
+    </div>
+
+    <!-- 上传区域 -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <h2 class="text-xl font-semibold mb-4">上传文件</h2>
+      
+      <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 transition">
+        <input type="file" id="fileInput" accept=".txt" class="hidden">
+        <label for="fileInput" class="cursor-pointer">
+          <div class="text-gray-600">
+            <svg class="mx-auto h-12 w-12 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+            </svg>
+            <p class="text-lg">点击选择txt文件</p>
+            <p class="text-sm text-gray-500 mt-2">MVP版本限制1000字</p>
+          </div>
+        </label>
+      </div>
+
+      <div id="fileInfo" class="mt-4 hidden">
+        <p class="text-sm text-gray-600">已选择: <span id="fileName" class="font-medium"></span></p>
+      </div>
+
+      <button id="uploadBtn" class="mt-4 w-full bg-blue-500 text-white py-3 rounded-lg hover:bg-blue-600 transition disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
+        开始生成视频
+      </button>
+    </div>
+
+    <!-- 进度显示 -->
+    <div id="progressSection" class="bg-white rounded-lg shadow-md p-6 hidden">
+      <h2 class="text-xl font-semibold mb-4">处理进度</h2>
+      
+      <div class="mb-4">
+        <div class="flex justify-between text-sm text-gray-600 mb-2">
+          <span id="currentStep">准备中...</span>
+          <span id="progressPercent">0%</span>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-3">
+          <div id="progressBar" class="bg-blue-500 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <div id="logArea" class="bg-gray-50 rounded p-4 h-48 overflow-y-auto text-sm font-mono">
+        <div class="text-gray-500">等待开始...</div>
+      </div>
+    </div>
+
+    <!-- 结果显示 -->
+    <div id="resultSection" class="bg-white rounded-lg shadow-md p-6 hidden">
+      <h2 class="text-xl font-semibold mb-4">✅ 生成完成</h2>
+      
+      <video id="videoPlayer" class="w-full rounded-lg mb-4" controls></video>
+      
+      <a id="downloadBtn" class="block w-full bg-green-500 text-white text-center py-3 rounded-lg hover:bg-green-600 transition" download>
+        下载视频
+      </a>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
