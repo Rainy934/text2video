@@ -11,6 +11,13 @@ const ttsService = require('../services/tts');
 const videoComposer = require('../services/videoComposer');
 const srtGenerator = require('../utils/srtGenerator');
 
+// 增强功能模块
+const EnhancedFeatures = require('../services/enhancedFeatures');
+const VideoEnhancements = require('../services/videoEnhancements');
+
+const enhancedFeatures = new EnhancedFeatures(ollamaService);
+const videoEnhancements = new VideoEnhancements();
+
 const router = express.Router();
 
 // 配置文件上传
@@ -256,7 +263,7 @@ async function retryComposeVideo(taskId, processedScenes) {
 }
 
 /**
- * 处理生成视频的主流程
+ * 处理生成视频的主流程（增强版）
  */
 async function processNovel(taskId, filePath) {
   const updateStatus = (progress, step) => {
@@ -279,7 +286,12 @@ async function processNovel(taskId, filePath) {
     const scenes = scenesData.scenes.slice(0, config.limits.sceneCount);
     console.log(`提取了${scenes.length}个场景`);
 
-    // 3. 生成 SRT 字幕文件
+    // 3. 分析全局视觉风格（增强功能）
+    updateStatus(23, '分析视觉风格...');
+    const globalStyle = await enhancedFeatures.analyzeGlobalVisualStyle(scenes);
+    console.log('全局视觉风格:', globalStyle);
+
+    // 4. 生成 SRT 字幕文件
     updateStatus(25, '生成字幕文件...');
     const tempDir = path.join(config.paths.temp, taskId);
     fs.mkdirSync(tempDir, { recursive: true });
@@ -288,7 +300,7 @@ async function processNovel(taskId, filePath) {
     const srtResult = srtGenerator.generateSRT(scenes, srtPath);
     console.log(`SRT 字幕已生成，总时长: ${srtResult.totalDuration.toFixed(2)}秒`);
 
-    // 4. 为每个场景生成内容
+    // 5. 为每个场景生成内容（使用增强功能）
     const processedScenes = [];
 
     for (let i = 0; i < scenes.length; i++) {
@@ -296,16 +308,24 @@ async function processNovel(taskId, filePath) {
       const sceneNum = i + 1;
       const baseProgress = 30 + (i / scenes.length) * 55;
 
-      // 4.1 生成图像提示词
-      updateStatus(baseProgress, `场景${sceneNum}: 生成图像提示词...`);
-      const imagePrompt = await ollamaService.generateImagePrompt(scene.description);
+      // 5.1 分析场景情感
+      const emotion = enhancedFeatures.analyzeSceneEmotion(scene.description, scene.narration);
+      console.log(`场景${sceneNum}情感: ${emotion}`);
 
-      // 4.2 生成图像
+      // 5.2 生成增强的图像提示词（结构化 + 视觉一致性）
+      updateStatus(baseProgress, `场景${sceneNum}: 生成图像提示词...`);
+      const imagePrompt = await enhancedFeatures.generateEnhancedImagePrompt(
+        scene.description,
+        globalStyle,
+        emotion
+      );
+
+      // 5.3 生成图像
       updateStatus(baseProgress + 8, `场景${sceneNum}: 生成图像...`);
       const imagePath = path.join(tempDir, `scene_${sceneNum}.png`);
       await imageGenService.generateImage(imagePrompt, imagePath);
 
-      // 4.3 生成配音
+      // 5.4 生成配音
       updateStatus(baseProgress + 12, `场景${sceneNum}: 生成配音...`);
       const audioPath = path.join(tempDir, `scene_${sceneNum}.wav`);
       await ttsService.generateTTS(scene.narration, audioPath);
@@ -324,19 +344,20 @@ async function processNovel(taskId, filePath) {
       narration: s.narration
     })), null, 2));
 
-    // 5. 合成最终视频（使用 SRT 字幕）
-    updateStatus(90, '合成视频并添加字幕...');
+    // 6. 合成最终视频（使用增强功能：Ken Burns + 转场）
+    updateStatus(90, '合成视频（含特效）...');
     const outputDir = path.join(config.paths.output, taskId);
     fs.mkdirSync(outputDir, { recursive: true });
     const finalVideoPath = path.join(outputDir, 'video.mp4');
 
-    await videoComposer.composeVideo(processedScenes, finalVideoPath, srtPath);
+    // 使用增强的视频合成
+    await composeVideoWithEnhancements(processedScenes, finalVideoPath, srtPath, tempDir);
 
     // 复制 SRT 文件到输出目录
     const outputSrtPath = path.join(outputDir, 'subtitles.srt');
     fs.copyFileSync(srtPath, outputSrtPath);
 
-    // 6. 完成
+    // 7. 完成
     updateStatus(100, '完成');
     tasks.set(taskId, {
       ...tasks.get(taskId),
@@ -354,6 +375,55 @@ async function processNovel(taskId, filePath) {
     console.error('处理失败:', error);
     throw error;
   }
+}
+
+/**
+ * 使用增强功能合成视频
+ */
+async function composeVideoWithEnhancements(scenes, outputPath, srtPath, tempDir) {
+  console.log(`开始合成视频（增强版），场景数: ${scenes.length}`);
+
+  // 为每个场景创建临时视频片段（含Ken Burns效果）
+  const videoSegments = [];
+  
+  for (let i = 0; i < scenes.length; i++) {
+    const scene = scenes[i];
+    const segmentPath = path.join(tempDir, `segment_${i}.mp4`);
+
+    await videoEnhancements.createVideoSegmentWithEffects(
+      scene.imagePath,
+      scene.audioPath,
+      segmentPath
+    );
+
+    videoSegments.push(segmentPath);
+  }
+
+  // 合并所有片段（含转场效果）
+  const mergedPath = srtPath 
+    ? path.join(tempDir, 'merged_no_subtitle.mp4')
+    : outputPath;
+  
+  await videoEnhancements.mergeSegmentsWithTransitions(videoSegments, mergedPath);
+
+  // 如果提供了 SRT 字幕，添加高级字幕
+  if (srtPath && fs.existsSync(srtPath)) {
+    await videoEnhancements.addSubtitlesEnhanced(mergedPath, srtPath, outputPath);
+    // 删除无字幕的临时文件
+    if (fs.existsSync(mergedPath)) {
+      fs.unlinkSync(mergedPath);
+    }
+  }
+
+  // 清理临时文件
+  videoSegments.forEach(segment => {
+    if (fs.existsSync(segment)) {
+      fs.unlinkSync(segment);
+    }
+  });
+
+  console.log(`视频合成完成（增强版）: ${outputPath}`);
+  return outputPath;
 }
 
 module.exports = router;

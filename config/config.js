@@ -49,6 +49,47 @@ module.exports = {
     sceneCount: 4 // 划分的场景数量
   },
 
+  // 视频生成增强功能开关
+  enhancements: {
+    // 文本处理
+    useRefinementValidation: true,  // 使用精炼验证
+    useEmotionalAnalysis: true,     // 使用情感分析
+    
+    // 图像生成
+    useStructuredPrompts: true,     // 使用结构化提示词
+    useVisualConsistency: true,     // 使用视觉一致性
+    
+    // 视频合成
+    useTransitions: true,           // 使用转场效果
+    useKenBurns: true,              // 使用Ken Burns效果
+    
+    // 字幕样式
+    useAdvancedSubtitles: true      // 使用高级字幕样式
+  },
+
+  // 转场效果配置
+  transitions: {
+    types: ['fade', 'dissolve'],
+    duration: 0.5  // 转场时长（秒）
+  },
+
+  // Ken Burns效果配置
+  kenBurns: {
+    zoomSpeed: 0.0015,  // 缩放速度
+    maxZoom: 1.5        // 最大缩放比例
+  },
+
+  // 字幕样式配置
+  subtitleStyle: {
+    fontFamily: 'PingFang SC',
+    fontSize: 48,
+    fontColor: 'white',
+    outlineColor: 'black',
+    outlineWidth: 3,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: '10,20'
+  },
+
   // 路径配置
   paths: {
     uploads: './uploads',
