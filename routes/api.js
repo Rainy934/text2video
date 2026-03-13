@@ -273,10 +273,10 @@ async function processNovel(taskId, filePath) {
     const text = textProcessor.readAndTruncate(filePath, config.limits.maxTextLength);
     console.log(`文本长度: ${text.length}字`);
 
-    // 2. 提取场景
-    updateStatus(20, '分析场景...');
+    // 2. 提取场景（两步法：先精炼，再划分）
+    updateStatus(20, '精炼文本并分析场景...');
     const scenesData = await ollamaService.extractScenes(text);
-    const scenes = scenesData.scenes.slice(0, config.limits.maxScenes);
+    const scenes = scenesData.scenes.slice(0, config.limits.sceneCount);
     console.log(`提取了${scenes.length}个场景`);
 
     // 3. 生成 SRT 字幕文件

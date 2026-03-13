@@ -1,6 +1,6 @@
 module.exports = {
   // 服务器配置
-  port: 3000,
+  port: 3010,
 
   // SiliconFlow API配置
   siliconflow: {
@@ -44,7 +44,9 @@ module.exports = {
   // 文本处理限制
   limits: {
     maxTextLength: 1000, // MVP限制1000字
-    maxScenes: 5
+    maxScenes: 5,
+    refinedTextLength: 400, // 精炼后的解说文本长度
+    sceneCount: 4 // 划分的场景数量
   },
 
   // 路径配置

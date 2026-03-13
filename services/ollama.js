@@ -11,75 +11,103 @@ class SiliconFlowLLMService {
   }
 
   /**
-   * 分析文本并提取关键场景
+   * 将原文精炼成视频解说文本（第一步）
    */
-  async extractScenes(text) {
-    const systemPrompt = `你是一个专业的影视分镜师和故事分析专家。你的任务是从文本中提取最核心、最具戏剧张力的视觉场景。
+  async refineToNarration(text, targetLength = 400) {
+    const systemPrompt = `你是一个专业的视频解说文案编辑。你的任务是将长文本精炼成适合视频解说的文案。
+
+核心原则：
+1. 保留完整故事线：开端、发展、高潮、结局都要有
+2. 保留关键信息：人物、地点、时间、事件、数据等核心要素
+3. 保持逻辑连贯：删减内容但不能让故事跳跃或难以理解
+4. 增强叙事节奏：用更紧凑、更有冲击力的语言重新组织
+5. 保持原文特色：独特的细节、专有名词、关键描述必须保留
+
+精炼技巧：
+- 合并重复信息
+- 删除冗余修饰
+- 简化复杂句式
+- 保留关键转折
+- 强化情感张力
+
+输出要求：
+- 字数控制在${targetLength}字左右（可以±50字）
+- 分段清晰，每段一个核心内容
+- 语言流畅，适合口播
+- 保持故事的完整性和吸引力`;
+
+    const userPrompt = `请将以下文本精炼成${targetLength}字左右的视频解说文案：
+
+${text}
+
+要求：
+1. 保留故事的完整脉络和关键信息
+2. 语言要简洁有力，适合视频解说
+3. 保持原文的独特细节和专有名词
+4. 字数控制在${targetLength}字左右
+5. 直接返回精炼后的文本，不要添加任何说明或标题`;
+
+    const refinedText = await this.chatCompletion([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ]);
+
+    console.log(`原文长度: ${text.length}字 -> 精炼后: ${refinedText.length}字`);
+    return refinedText.trim();
+  }
+
+  /**
+   * 将精炼后的解说文本划分成场景（第二步）
+   */
+  async divideIntoScenes(refinedText, sceneCount = 4) {
+    const systemPrompt = `你是一个专业的视频分镜师。你的任务是将一段完整的解说文本划分成${sceneCount}个场景。
 
 分镜原则：
-1. 聚焦故事转折点：选择推动情节发展的关键时刻
-2. 捕捉情感高潮：选择情绪最强烈、最具冲击力的瞬间
-3. 视觉冲击力：选择最具画面感、最容易被记住的场景
-4. 叙事完整性：场景之间要有逻辑连贯性，能串联起完整故事线
+1. 按故事逻辑划分：每个场景是故事的一个自然段落
+2. 时长均衡：每个场景的解说词长度尽量接近
+3. 画面独立：每个场景要有明确的视觉主体
+4. 叙事连贯：场景之间要自然衔接，不能割裂故事
 
-场景选择标准（按优先级）：
-- 故事的开端/引入（设定背景和氛围）
-- 核心冲突或转折点（故事的关键变化）
-- 情感或视觉高潮（最震撼的时刻）
-- 悬念或揭秘时刻（引发好奇或解答疑问）
-- 结局或余韵（故事的收尾或启示）
-
-避免选择：
-- 纯粹的对话场景（缺乏视觉元素）
-- 过渡性的描述（没有戏剧性）
-- 重复性的内容（信息冗余）
-
-关键要求：
-1. 必须保留原文中的核心信息和关键细节（如：龙尸、外星飞船、特定人物名等）
-2. 不要用泛化的词语替代原文的具体描述（如：不要把"龙尸"改成"尸体"）
-3. 保持原文的独特性和辨识度
-4. 场景描述要忠实于原文，只补充视觉化细节
+场景构成：
+- description: 这个场景的视觉描述（用于生成图像），要具体、有画面感
+- narration: 这个场景的解说词（直接从原文中提取，保持原文表达）
 
 返回JSON格式（必须使用双引号"，不要使用单引号'）：
 {
   "scenes": [
     {
       "id": 1,
-      "description": "场景的详细视觉描述（必须包含原文的关键信息，如具体物体、人物、地点等，然后补充环境、动作、光影、氛围等视觉细节）",
-      "narration": "这个场景的解说词（20-30秒可以读完，要有故事性和感染力，必须保留原文的核心信息）"
+      "description": "场景的详细视觉描述，包含环境、主体、动作、光影、氛围等，用于AI生成图像",
+      "narration": "这个场景对应的解说词，直接从原文提取，保持原文的表达方式"
     }
   ]
 }
 
 重要：
-1. 确保返回完整有效的JSON
-2. 必须使用双引号"作为字符串分隔符，不要使用单引号'
-3. 字符串内部如果需要引用对话，使用中文引号「」或『』
-4. 提取3-5个场景，每个场景都必须是故事的核心节点
-5. 严格保留原文的关键信息，不要泛化或替换`;
+1. narration 必须完整覆盖原文，不能遗漏内容
+2. 每个场景的 narration 长度尽量均衡
+3. description 要有丰富的视觉细节，便于生成高质量图像
+4. 必须使用标准JSON格式，字符串用双引号"
+5. 场景数量必须是${sceneCount}个`;
 
-    const userPrompt = `请分析以下文本，提取3-5个最核心、最具戏剧张力的关键场景：
+    const userPrompt = `请将以下解说文本划分成${sceneCount}个场景：
 
-${text}
+${refinedText}
 
 要求：
-1. 只选择推动情节发展的关键时刻
-2. 每个场景要有强烈的视觉冲击力
-3. 场景之间要能串联起完整的故事线
-4. 解说词要有感染力，能引发观众情绪共鸣
-5. 必须使用标准JSON格式，字符串用双引号"，对话使用中文引号「」
-6. 【重要】严格保留原文中的关键信息和具体细节，不要用泛化词语替代（例如：原文是"龙尸"就必须写"龙尸"，不要改成"尸体"或"遗骸"）
-
-只返回JSON，不要其他内容。`;
+1. 严格划分成${sceneCount}个场景
+2. 每个场景的解说词长度尽量均衡
+3. 解说词要完整覆盖原文，不能遗漏
+4. 视觉描述要详细具体，便于生成图像
+5. 只返回JSON，不要其他内容`;
 
     const response = await this.chatCompletion([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
     ]);
-    
+
     // 解析JSON响应
     try {
-      // 尝试找到完整的 JSON 对象
       let jsonStr = null;
       
       const jsonMatch = response.match(/\{[\s\S]*\}/);
@@ -89,27 +117,41 @@ ${text}
         throw new Error('响应中未找到JSON对象');
       }
 
-      // 清理非法控制字符
       jsonStr = jsonStr.replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u007F]/g, '');
-      
-      // 修复未转义的双引号问题
       jsonStr = this.fixUnescapedQuotes(jsonStr);
       
       const parsed = JSON.parse(jsonStr);
       
-      // 验证返回的数据结构
       if (!parsed.scenes || !Array.isArray(parsed.scenes)) {
         throw new Error('JSON 格式错误：缺少 scenes 数组');
       }
       
+      console.log(`成功划分为${parsed.scenes.length}个场景`);
       return parsed;
       
     } catch (error) {
       console.error('解析场景失败:', error.message);
-      console.error('原始响应长度:', response.length);
       console.error('原始响应:', response);
       throw error;
     }
+  }
+
+  /**
+   * 分析文本并提取关键场景（两步法：先精炼，再划分）
+   */
+  async extractScenes(text) {
+    console.log('=== 开始两步法场景提取 ===');
+    
+    // 第一步：精炼原文成解说文本
+    console.log('第一步：精炼原文...');
+    const refinedText = await this.refineToNarration(text, 400);
+    
+    // 第二步：将精炼文本划分成场景
+    console.log('第二步：划分场景...');
+    const scenesData = await this.divideIntoScenes(refinedText, 4);
+    
+    console.log('=== 场景提取完成 ===');
+    return scenesData;
   }
 
   /**
